@@ -87,7 +87,7 @@ int main(int argc, char** argv) {
         state.has_filename = TRUE;
         
         initialize_screen(&state);
-        print_from_row(&state, 0, state.row_count - 2);
+        refresh_screen(&state);
         state.cursor_y = 1;
         state.cursor_x = 1;
         update_status_bar(&state);

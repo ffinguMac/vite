@@ -24,15 +24,19 @@ int get_total_lines(EditorState* state) {
 
 Node* get_current_row(EditorState* state) {
     Node* current = state->head;
-    int target_row = state->cursor_y + state->page_offset_y;
+    
+    // Calculate which row we're on (1-based)
+    // cursor_y is screen position (1-based), page_offset_y is scroll offset
+    // So actual row = page_offset_y + cursor_y
+    int target_row = state->page_offset_y + state->cursor_y;
     
     // Ensure target_row is at least 1 (first actual row is row 1)
     if (target_row < 1) target_row = 1;
     
     // Skip head (row 0) and move to target_row
-    for (int i = 0; i < target_row && current != NULL; i++) {
+    current = current->next; // Skip head first
+    for (int i = 1; i < target_row && current != NULL; i++) {
         current = current->next;
-        if (current == NULL) break;
     }
     
     // If we couldn't reach target_row, return the last row
@@ -191,6 +195,7 @@ void insert_newline(EditorState* state) {
             tmp->row++;
             tmp = tmp->next;
         }
+        // Screen refresh will be handled by handle_enter
     } else {
         // Split in middle
         int right_size = current->size - pos;
@@ -242,27 +247,11 @@ void delete_char_at_cursor(EditorState* state) {
     Node* current = get_current_row(state);
     if (current == NULL || current == state->head) return;
     
-    if (state->cursor_x > 1) {
-        // Delete character
-        int pos = state->cursor_x - 1;
-        for (int i = pos - 1; i < current->size - 1; i++) {
-            current->data[i] = current->data[i + 1];
-        }
-        current->size--;
-        current->data = (char*)realloc(current->data, (current->size + 1) * sizeof(char));
-        if (current->data == NULL) return;
-        current->data[current->size] = '\0';
-        state->cursor_x--;
-        
-        clear_line();
-        move_cursor(1, state->cursor_y);
-        printf("%s", current->data);
-    } else {
-        // Delete line (merge with previous)
+    // If cursor is at the beginning of line (x == 1), merge with previous line
+    if (state->cursor_x == 1) {
         if (current->prev == state->head) {
             // First row - just move cursor to beginning
             state->cursor_x = 1;
-            // If we're not at the top of the screen, adjust cursor_y
             if (state->cursor_y > 1) {
                 state->cursor_y = 1;
             } else if (state->page_offset_y > 0) {
@@ -271,6 +260,7 @@ void delete_char_at_cursor(EditorState* state) {
             return;
         }
         
+        // Merge current line with previous line
         Node* prev = current->prev;
         int new_size = prev->size + current->size;
         prev->data = (char*)realloc(prev->data, (new_size + 1) * sizeof(char));
@@ -297,9 +287,83 @@ void delete_char_at_cursor(EditorState* state) {
         state->cursor_y--;
         state->cursor_x = prev->size + 1;
         
-        clear_line();
-        move_cursor(1, state->cursor_y);
-        printf("%s", prev->data);
+        // Refresh entire screen to show merged line and ~ for empty lines
+        refresh_screen(state);
+        update_status_bar(state);
+    } else {
+        // Delete character at current position
+        int pos = state->cursor_x - 1;
+        
+        // If cursor is past the end of line (cursor_x > size + 1), just move cursor back
+        if (pos > current->size) {
+            state->cursor_x = current->size + 1;
+            if (state->cursor_x < 1) state->cursor_x = 1;
+            move_cursor(state->cursor_x, state->cursor_y);
+            return;
+        }
+        
+        // If cursor is at the end of line (cursor_x == size + 1), delete the last character
+        if (pos == current->size) {
+            // Delete the last character
+            if (current->size > 0) {
+                current->size--;
+                if (current->size > 0) {
+                    current->data = (char*)realloc(current->data, (current->size + 1) * sizeof(char));
+                    if (current->data == NULL) return;
+                    current->data[current->size] = '\0';
+                } else {
+                    // Line becomes empty
+                    if (current->data != NULL) {
+                        free(current->data);
+                    }
+                    current->data = (char*)malloc(1 * sizeof(char));
+                    if (current->data == NULL) return;
+                    current->data[0] = '\0';
+                }
+                state->cursor_x = current->size + 1;
+                if (state->cursor_x < 1) state->cursor_x = 1;
+                
+                clear_line();
+                move_cursor(1, state->cursor_y);
+                printf("%s", current->data);
+            }
+            return;
+        }
+        
+        // Delete character at pos (pos < size, normal case)
+        if (pos >= 0 && pos < current->size) {
+            // Shift all characters after pos one position to the left
+            for (int i = pos; i < current->size; i++) {
+                current->data[i] = current->data[i + 1];
+            }
+            current->size--;
+            
+            if (current->size > 0) {
+                current->data = (char*)realloc(current->data, (current->size + 1) * sizeof(char));
+                if (current->data == NULL) return;
+                current->data[current->size] = '\0';
+            } else {
+                // If line becomes empty, keep at least empty string
+                if (current->data != NULL) {
+                    free(current->data);
+                }
+                current->data = (char*)malloc(1 * sizeof(char));
+                if (current->data == NULL) return;
+                current->data[0] = '\0';
+            }
+            
+            state->cursor_x--;
+            if (state->cursor_x < 1) state->cursor_x = 1;
+            
+            clear_line();
+            move_cursor(1, state->cursor_y);
+            printf("%s", current->data);
+        } else {
+            // pos is out of bounds, just move cursor back
+            state->cursor_x = current->size;
+            if (state->cursor_x < 1) state->cursor_x = 1;
+            move_cursor(state->cursor_x, state->cursor_y);
+        }
     }
 }
 
@@ -334,6 +398,7 @@ void handle_char_input(EditorState* state, char ch) {
 
 void handle_backspace(EditorState* state) {
     delete_char_at_cursor(state);
+    update_status_bar(state);
     move_cursor(state->cursor_x, state->cursor_y);
 }
 
@@ -351,17 +416,28 @@ void handle_enter(EditorState* state) {
         insert_newline(state);
         state->cursor_x = 1;
         state->page_offset_y++;
+        
+        // Refresh screen to show the new line and shifted lines
+        refresh_screen(state);
         update_status_bar(state);
         move_cursor(state->cursor_x, state->row_count - 1);
     } else if (last_row != state->head && last_row->row > state->row_count - 2) {
         insert_newline(state);
         state->cursor_x = 1;
         state->cursor_y++;
+        
+        // Refresh screen to show the new line and shifted lines below
+        refresh_screen(state);
+        update_status_bar(state);
         move_cursor(state->cursor_x, state->cursor_y);
     } else {
         insert_newline(state);
         state->cursor_x = 1;
         state->cursor_y++;
+        
+        // Refresh screen to show the new line and shifted lines below
+        refresh_screen(state);
+        update_status_bar(state);
         move_cursor(state->cursor_x, state->cursor_y);
     }
 }

@@ -4,12 +4,12 @@
 void print_from_row(EditorState* state, int start_row, int end_row) {
     Node* current = state->head;
     
-    // Skip head (row 0) and move to start_row
-    // start_row is 0-based for display purposes
-    for (int i = 0; i <= start_row && current != NULL; i++) {
-        if (i < start_row) {
-            current = current->next;
-        }
+    // Skip head (row 0) first
+    current = current->next;
+    
+    // Move to start_row
+    for (int i = 0; i < start_row && current != NULL && current != state->head; i++) {
+        current = current->next;
     }
     
     // Print rows until end_row
@@ -108,11 +108,13 @@ void refresh_screen(EditorState* state) {
     Node* current = state->head;
     int start_row = state->page_offset_y;
     
-    // Skip head (row 0) and move to start_row (1-based)
-    for (int i = 0; i <= start_row && current != NULL; i++) {
-        if (i < start_row) {
-            current = current->next;
-        }
+    // Skip head (row 0) and move to start_row
+    // page_offset_y = 0 means show from first row (head->next)
+    // page_offset_y = 1 means show from second row, etc.
+    // We need to skip head and then move start_row steps forward
+    current = current->next; // Skip head first
+    for (int i = 0; i < start_row && current != NULL; i++) {
+        current = current->next;
     }
     
     int screen_row = 1;

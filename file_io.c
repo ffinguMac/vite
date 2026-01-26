@@ -114,11 +114,10 @@ void handle_find(EditorState* state) {
         int start_row = state->page_offset_y;
         int max_rows = state->row_count - 2; // Exclude status and help bars
         
-        // Skip head (row 0) and move to start_row (1-based)
-        for (int i = 0; i <= start_row && current != NULL; i++) {
-            if (i < start_row) {
-                current = current->next;
-            }
+        // Skip head (row 0) and move to start_row
+        current = current->next; // Skip head first
+        for (int i = 0; i < start_row && current != NULL; i++) {
+            current = current->next;
         }
         
         int screen_row = 1;
